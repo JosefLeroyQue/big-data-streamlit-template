@@ -4,7 +4,11 @@ import time
 from datetime import datetime, timezone
 
 import requests
+from dotenv import load_dotenv
 from kafka import KafkaProducer
+
+# Force load .env variables to override any cached shell environment variables
+load_dotenv(override=True)
 
 API_KEY = os.getenv("WEATHER_API_KEY")
 LOCATION = os.getenv("WEATHER_LOCATION", "Manila")
@@ -13,9 +17,15 @@ TOPIC = os.getenv("KAFKA_TOPIC", "streaming-data")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "15"))
 
 
+def json_serializer(value):
+    return json.dumps(value).encode("utf-8")
+
+
 def fetch_weather():
     if not API_KEY:
-        raise RuntimeError("WEATHER_API_KEY is missing.")
+        raise RuntimeError(
+            "WEATHER_API_KEY is missing. Ensure WEATHER_API_KEY is defined in your .env file."
+        )
 
     response = requests.get(
         "https://api.weatherapi.com/v1/current.json",
@@ -40,7 +50,6 @@ def fetch_weather():
             "timestamp": timestamp,
             "value": float(current["temp_c"]),
             "metric_type": "temperature",
-            "sensor_id": "weatherapi_temperature",
             "unit": "°C"
         },
         {
@@ -74,7 +83,7 @@ def main():
 
     producer = KafkaProducer(
         bootstrap_servers=BOOTSTRAP_SERVERS,
-        value_serializer=lambda value: json.dumps(value).encode("utf-8"),
+        value_serializer=json_serializer,
         retries=5
     )
 
@@ -88,7 +97,7 @@ def main():
                 weather_records = fetch_weather()
 
                 for record in weather_records:
-                    producer.send(TOPIC, record).get(timeout=30)
+                    producer.send(TOPIC, record)
                     print(json.dumps(record, indent=2))
 
                 producer.flush()
